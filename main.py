@@ -147,4 +147,14 @@ def receive_document(message):
     forward_to_admin("📎 Файл", message.from_user, document=message.document.file_id)
     bot.send_message(message.chat.id, "✅ Файл получен! Передал автору.")
 
+@bot.message_handler(commands=['dump'])
+def dump_users(message):
+    if message.from_user.id == ADMIN_ID:
+        users = load_users()
+        if users:
+            text = "👥 Все пользователи:\n" + "\n".join(str(u) for u in users)
+        else:
+            text = "Список пустой"
+        bot.send_message(message.chat.id, text)
+
 bot.infinity_polling()
