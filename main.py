@@ -28,13 +28,11 @@ def save_users(users):
 users = load_users()
 
 def main_menu():
-    markup = InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        InlineKeyboardButton("✏️ Ошибка в тесте", callback_data="feedback"),
-        InlineKeyboardButton("📚 Предложить предмет", callback_data="subject"),
-        InlineKeyboardButton("💡 Идея для развития", callback_data="idea"),
-        InlineKeyboardButton("👥 Позвать друга", callback_data="invite"),
-    )
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("✏️  Нашёл ошибку", callback_data="feedback"))
+    markup.add(InlineKeyboardButton("📚  Хочу другой предмет", callback_data="subject"))
+    markup.add(InlineKeyboardButton("💡  Есть идея для развития", callback_data="idea"))
+    markup.add(InlineKeyboardButton("👥  Позвать друга", callback_data="invite"))
     return markup
 
 @bot.message_handler(commands=['start'])
@@ -55,10 +53,10 @@ def start(message):
         )
     bot.send_message(
         message.chat.id,
-        "Привет!\n\n"
+        "Привет! 👋\n\n"
         "Здесь можно подготовиться к экзамену по "
-        "Факультетской терапии - 500 вопросов\n\n"
-        "Нажми кнопку внизу и начинай!",
+        "Факультетской терапии — 500 вопросов 🫀\n\n"
+        "👇 Нажми кнопку внизу и начинай!",
         reply_markup=main_menu()
     )
 
@@ -67,65 +65,66 @@ def handle_callback(call):
     bot.answer_callback_query(call.id)
     user_id = call.from_user.id
     chat_id = call.message.chat.id
-    name = call.from_user.first_name or ''
-    username = f"@{call.from_user.username}" if call.from_user.username else "без username"
 
     if call.data == "feedback":
         waiting_feedback.add(user_id)
         bot.send_message(chat_id,
-            "Напиши об ошибке или пожелании - передам автору:",
+            "✏️ Напиши что не так — передам автору:",
             reply_markup=ForceReply(selective=True))
 
     elif call.data == "subject":
         waiting_subject.add(user_id)
         bot.send_message(chat_id,
-            "Какой предмет хочешь видеть здесь?\n\n"
-            "Напиши предмет и курс, например: Хирургия, 4 курс\n\n"
-            "Стараемся добавлять то, что нужно больше всего",
+            "📚 Какой предмет и курс хочешь видеть здесь?\n\n"
+            "Например: Хирургия, 4 курс\n\n"
+            "Стараемся добавлять то, что нужно больше всего 🙏",
             reply_markup=ForceReply(selective=True))
 
     elif call.data == "idea":
         waiting_idea.add(user_id)
         bot.send_message(chat_id,
-            "Как сделать этот бот лучше?\n\n"
-            "Напиши любую идею - новые функции, режимы, удобство. "
-            "Читаю каждое сообщение",
+            "💡 Как улучшить бот?\n\n"
+            "Напиши любую идею — новые функции, режимы, удобство.\n"
+            "Читаю каждое сообщение 👀",
             reply_markup=ForceReply(selective=True))
 
     elif call.data == "invite":
         bot.send_message(chat_id,
-            f"Скинь другу - пусть тоже готовится!\n\n"
-            f"Зацени бота для подготовки к экзаменам - 500 вопросов, "
-            f"учебный режим и экзамен на время. Реально помогает\n\n"
-            f"{BOT_LINK}")
+            "👥 Скинь другу — пусть тоже готовится!\n\n"
+            "——————————————\n"
+            "Зацени бота для подготовки к экзаменам — "
+            "500 вопросов, учебный режим и экзамен на время. "
+            "Реально помогает 🫀\n\n"
+            f"👉 {BOT_LINK}\n"
+            "——————————————")
 
 @bot.message_handler(commands=['stats'])
 def stats(message):
     if message.from_user.id == ADMIN_ID:
-        bot.send_message(message.chat.id, f"Всего пользователей: {len(users)}")
+        bot.send_message(message.chat.id, f"📊 Всего пользователей: {len(users)}")
 
 @bot.message_handler(func=lambda m: m.from_user.id in waiting_feedback and not m.text.startswith('/'))
 def receive_feedback(message):
     waiting_feedback.discard(message.from_user.id)
     name = message.from_user.first_name or ''
     username = f"@{message.from_user.username}" if message.from_user.username else "без username"
-    bot.send_message(ADMIN_ID, f"Отзыв/ошибка!\n{name} ({username})\n\n{message.text}")
-    bot.send_message(message.chat.id, "Спасибо! Передал автору.")
+    bot.send_message(ADMIN_ID, f"📩 Ошибка/отзыв\n👤 {name} ({username})\n\n{message.text}")
+    bot.send_message(message.chat.id, "✅ Спасибо! Передал автору.")
 
 @bot.message_handler(func=lambda m: m.from_user.id in waiting_subject and not m.text.startswith('/'))
 def receive_subject(message):
     waiting_subject.discard(message.from_user.id)
     name = message.from_user.first_name or ''
     username = f"@{message.from_user.username}" if message.from_user.username else "без username"
-    bot.send_message(ADMIN_ID, f"Запрос предмета!\n{name} ({username})\n\n{message.text}")
-    bot.send_message(message.chat.id, "Записал! Учту при следующем обновлении")
+    bot.send_message(ADMIN_ID, f"📚 Запрос предмета\n👤 {name} ({username})\n\n{message.text}")
+    bot.send_message(message.chat.id, "✅ Записал! Учту при следующем обновлении 🙏")
 
 @bot.message_handler(func=lambda m: m.from_user.id in waiting_idea and not m.text.startswith('/'))
 def receive_idea(message):
     waiting_idea.discard(message.from_user.id)
     name = message.from_user.first_name or ''
     username = f"@{message.from_user.username}" if message.from_user.username else "без username"
-    bot.send_message(ADMIN_ID, f"Идея для развития!\n{name} ({username})\n\n{message.text}")
-    bot.send_message(message.chat.id, "Огонь идея! Спасибо, читаю всё")
+    bot.send_message(ADMIN_ID, f"💡 Идея\n👤 {name} ({username})\n\n{message.text}")
+    bot.send_message(message.chat.id, "🔥 Огонь идея! Спасибо, читаю всё 👀")
 
 bot.infinity_polling()
