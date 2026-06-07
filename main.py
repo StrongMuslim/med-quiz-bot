@@ -20,7 +20,7 @@ def add_user(user_id, name, username):
         'user_id': user_id,
         'name': name,
         'username': username
-    }).execute()
+    }, on_conflict='user_id').execute()
 
 def is_new_user(user_id):
     res = db.table('users').select('user_id').eq('user_id', user_id).execute()
