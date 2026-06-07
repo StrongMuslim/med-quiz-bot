@@ -1,6 +1,6 @@
 import os
-import json
 import telebot
+from supabase import create_client
 from telebot.types import ForceReply, InlineKeyboardMarkup, InlineKeyboardButton
 
 TOKEN = os.environ['BOT_TOKEN']
@@ -8,25 +8,27 @@ ADMIN_ID = 1050263828
 BOT_LINK = "https://t.me/medfak_kg_bot"
 
 bot = telebot.TeleBot(TOKEN)
+db = create_client(os.environ['SUPABASE_URL'], os.environ['SUPABASE_KEY'])
 
-USERS_FILE = 'users.json'
 waiting_feedback = set()
 waiting_subject = set()
 waiting_idea = set()
 reply_map = {}
 
-def load_users():
-    try:
-        with open(USERS_FILE, 'r') as f:
-            return set(json.load(f))
-    except:
-        return set()
+def add_user(user_id, name, username):
+    db.table('users').upsert({
+        'user_id': user_id,
+        'name': name,
+        'username': username
+    }).execute()
 
-def save_users(users):
-    with open(USERS_FILE, 'w') as f:
-        json.dump(list(users), f)
+def is_new_user(user_id):
+    res = db.table('users').select('user_id').eq('user_id', user_id).execute()
+    return len(res.data) == 0
 
-users = load_users()
+def count_users():
+    res = db.table('users').select('user_id', count='exact').execute()
+    return res.count
 
 def main_menu():
     markup = InlineKeyboardMarkup()
@@ -53,14 +55,17 @@ def forward_to_admin(label, user, text=None, photo=None, document=None):
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
-    is_new = user_id not in users
-    if is_new:
-        users.add(user_id)
-        save_users(users)
-        name = message.from_user.first_name or ''
-        username = f"@{message.from_user.username}" if message.from_user.username else "без username"
+    name = message.from_user.first_name or ''
+    username = f"@{message.from_user.username}" if message.from_user.username else "без username"
+    new = is_new_user(user_id)
+    add_user(user_id, name, username)
+    if new:
+        total = count_users()
         bot.send_message(ADMIN_ID,
-            f"Новый пользователь!\nИмя: {name} ({username})\nID: {user_id}\nВсего: {len(users)} чел.")
+            f"🆕 Новый пользователь!\n"
+            f"👤 {name} ({username})\n"
+            f"🆔 {user_id}\n"
+            f"📊 Всего: {total} чел.")
     bot.send_message(message.chat.id,
         "Привет! 👋\n\n"
         "Здесь можно подготовиться к экзамену по "
@@ -75,21 +80,31 @@ def handle_callback(call):
     chat_id = call.message.chat.id
     if call.data == "feedback":
         waiting_feedback.add(user_id)
-        bot.send_message(chat_id, "✏️ Напиши об ошибке — или прикрепи скриншот/файл:",
+        bot.send_message(chat_id,
+            "✏️ Напиши об ошибке — или прикрепи скриншот/файл:",
             reply_markup=ForceReply(selective=True))
     elif call.data == "subject":
         waiting_subject.add(user_id)
         bot.send_message(chat_id,
-            "📚 Какой предмет и курс хочешь видеть здесь?\n\nНапример: Хирургия, 4 курс\n\nСтараемся добавлять то, что нужно больше всего 🙏",
+            "📚 Напиши какой предмет и курс хочешь видеть здесь.\n\n"
+            "Если есть файл с вопросами — прикрепи его, это сильно ускорит добавление 📎\n\n"
+            "Я на работе, поэтому не могу сказать точно когда добавлю — но постараюсь 🙏\n"
+            "Можешь написать напрямую: @eyf1n",
             reply_markup=ForceReply(selective=True))
     elif call.data == "idea":
         waiting_idea.add(user_id)
         bot.send_message(chat_id,
-            "💡 Как улучшить бот?\n\nНапиши любую идею — новые функции, режимы, удобство.\nЧитаю каждое сообщение 👀",
+            "💡 Как улучшить бот?\n\n"
+            "Напиши любую идею — новые функции, режимы, удобство.\n"
+            "Читаю каждое сообщение 👀",
             reply_markup=ForceReply(selective=True))
     elif call.data == "invite":
         bot.send_message(chat_id,
-            f"👥 Скинь другу — пусть тоже готовится!\n\n——————————————\nЗацени бота для подготовки к экзаменам — 500 вопросов, учебный режим и экзамен на время. Реально помогает 🫀\n\n👉 {BOT_LINK}\n——————————————")
+            f"👥 Скинь другу — пусть тоже готовится!\n\n"
+            f"——————————————\n"
+            f"Зацени бота для подготовки к экзаменам — 500 вопросов, "
+            f"учебный режим и экзамен на время. Реально помогает 🫀\n\n"
+            f"👉 {BOT_LINK}\n——————————————")
 
 @bot.message_handler(
     func=lambda m: m.chat.id == ADMIN_ID and m.reply_to_message and m.reply_to_message.message_id in reply_map
@@ -99,9 +114,11 @@ def admin_reply(message):
     if not target_user:
         return
     if message.photo:
-        bot.send_photo(target_user, message.photo[-1].file_id, caption="💬 Ответ автора:\n\n" + (message.caption or ''))
+        bot.send_photo(target_user, message.photo[-1].file_id,
+            caption="💬 Ответ автора:\n\n" + (message.caption or ''))
     elif message.document:
-        bot.send_document(target_user, message.document.file_id, caption="💬 Ответ автора:\n\n" + (message.caption or ''))
+        bot.send_document(target_user, message.document.file_id,
+            caption="💬 Ответ автора:\n\n" + (message.caption or ''))
     elif message.text:
         bot.send_message(target_user, f"💬 Ответ автора:\n\n{message.text}")
     bot.send_message(ADMIN_ID, "✅ Ответ отправлен пользователю")
@@ -109,14 +126,16 @@ def admin_reply(message):
 @bot.message_handler(commands=['stats'])
 def stats(message):
     if message.from_user.id == ADMIN_ID:
-        bot.send_message(message.chat.id, f"📊 Всего пользователей: {len(users)}")
+        total = count_users()
+        bot.send_message(message.chat.id, f"📊 Всего пользователей: {total}")
 
 @bot.message_handler(
+    content_types=['text'],
     func=lambda m: m.from_user.id != ADMIN_ID and (
         m.from_user.id in waiting_feedback or
         m.from_user.id in waiting_subject or
         m.from_user.id in waiting_idea
-    ) and not m.text.startswith('/')
+    ) and m.text and not m.text.startswith('/')
 )
 def receive_text(message):
     user_id = message.from_user.id
@@ -127,7 +146,9 @@ def receive_text(message):
     elif user_id in waiting_subject:
         waiting_subject.discard(user_id)
         forward_to_admin("📚 Запрос предмета", message.from_user, text=message.text)
-        bot.send_message(message.chat.id, "✅ Записал! Учту при следующем обновлении 🙏")
+        bot.send_message(message.chat.id,
+            "✅ Записал! Постараюсь добавить как освобожусь 🙏\n\n"
+            "Если срочно — пиши напрямую: @eyf1n")
     elif user_id in waiting_idea:
         waiting_idea.discard(user_id)
         forward_to_admin("💡 Идея", message.from_user, text=message.text)
@@ -135,26 +156,34 @@ def receive_text(message):
 
 @bot.message_handler(content_types=['photo'],
     func=lambda m: m.from_user.id != ADMIN_ID and m.from_user.id in waiting_feedback)
-def receive_photo(message):
+def receive_feedback_photo(message):
     waiting_feedback.discard(message.from_user.id)
     forward_to_admin("📸 Фото/скриншот", message.from_user, photo=message.photo[-1].file_id)
     bot.send_message(message.chat.id, "✅ Фото получено! Передал автору.")
 
 @bot.message_handler(content_types=['document'],
     func=lambda m: m.from_user.id != ADMIN_ID and m.from_user.id in waiting_feedback)
-def receive_document(message):
+def receive_feedback_document(message):
     waiting_feedback.discard(message.from_user.id)
     forward_to_admin("📎 Файл", message.from_user, document=message.document.file_id)
     bot.send_message(message.chat.id, "✅ Файл получен! Передал автору.")
 
-@bot.message_handler(commands=['dump'])
-def dump_users(message):
-    if message.from_user.id == ADMIN_ID:
-        users = load_users()
-        if users:
-            text = "👥 Все пользователи:\n" + "\n".join(str(u) for u in users)
-        else:
-            text = "Список пустой"
-        bot.send_message(message.chat.id, text)
+@bot.message_handler(content_types=['photo'],
+    func=lambda m: m.from_user.id != ADMIN_ID and m.from_user.id in waiting_subject)
+def receive_subject_photo(message):
+    waiting_subject.discard(message.from_user.id)
+    forward_to_admin("📚 Запрос предмета (фото)", message.from_user, photo=message.photo[-1].file_id)
+    bot.send_message(message.chat.id,
+        "✅ Фото получил! Постараюсь добавить как освобожусь 🙏\n\n"
+        "Если срочно — пиши напрямую: @eyf1n")
+
+@bot.message_handler(content_types=['document'],
+    func=lambda m: m.from_user.id != ADMIN_ID and m.from_user.id in waiting_subject)
+def receive_subject_document(message):
+    waiting_subject.discard(message.from_user.id)
+    forward_to_admin("📚 Запрос предмета (файл)", message.from_user, document=message.document.file_id)
+    bot.send_message(message.chat.id,
+        "✅ Файл получил! Постараюсь добавить как освобожусь 🙏\n\n"
+        "Если срочно — пиши напрямую: @eyf1n")
 
 bot.infinity_polling()
