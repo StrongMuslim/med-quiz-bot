@@ -86,10 +86,9 @@ def handle_callback(call):
     elif call.data == "subject":
         waiting_subject.add(user_id)
         bot.send_message(chat_id,
-            "📚 Напиши какой предмет и курс хочешь видеть здесь.\n\n"
-            "Если есть файл с вопросами — прикрепи его, это сильно ускорит добавление 📎\n\n"
-            "Я на работе, поэтому не могу сказать точно когда добавлю — но постараюсь 🙏\n"
-            "Можешь написать напрямую: @eyf1n",
+            "📚 Напиши название предмета и курс.\n\n"
+            "⚠️ Файл с вопросами обязательно скинь напрямую: @eyf1n\n"
+            "Без файла добавить не получится.",
             reply_markup=ForceReply(selective=True))
     elif call.data == "idea":
         waiting_idea.add(user_id)
@@ -147,8 +146,9 @@ def receive_text(message):
         waiting_subject.discard(user_id)
         forward_to_admin("📚 Запрос предмета", message.from_user, text=message.text)
         bot.send_message(message.chat.id,
-            "✅ Записал! Постараюсь добавить как освобожусь 🙏\n\n"
-            "Если срочно — пиши напрямую: @eyf1n")
+            "✅ Записал!\n\n"
+            "Теперь скинь файл с вопросами напрямую: @eyf1n\n"
+            "Без него добавить не смогу 🙏")
     elif user_id in waiting_idea:
         waiting_idea.discard(user_id)
         forward_to_admin("💡 Идея", message.from_user, text=message.text)
@@ -167,23 +167,5 @@ def receive_feedback_document(message):
     waiting_feedback.discard(message.from_user.id)
     forward_to_admin("📎 Файл", message.from_user, document=message.document.file_id)
     bot.send_message(message.chat.id, "✅ Файл получен! Передал автору.")
-
-@bot.message_handler(content_types=['photo'],
-    func=lambda m: m.from_user.id != ADMIN_ID and m.from_user.id in waiting_subject)
-def receive_subject_photo(message):
-    waiting_subject.discard(message.from_user.id)
-    forward_to_admin("📚 Запрос предмета (фото)", message.from_user, photo=message.photo[-1].file_id)
-    bot.send_message(message.chat.id,
-        "✅ Фото получил! Постараюсь добавить как освобожусь 🙏\n\n"
-        "Если срочно — пиши напрямую: @eyf1n")
-
-@bot.message_handler(content_types=['document'],
-    func=lambda m: m.from_user.id != ADMIN_ID and m.from_user.id in waiting_subject)
-def receive_subject_document(message):
-    waiting_subject.discard(message.from_user.id)
-    forward_to_admin("📚 Запрос предмета (файл)", message.from_user, document=message.document.file_id)
-    bot.send_message(message.chat.id,
-        "✅ Файл получил! Постараюсь добавить как освобожусь 🙏\n\n"
-        "Если срочно — пиши напрямую: @eyf1n")
 
 bot.infinity_polling()
