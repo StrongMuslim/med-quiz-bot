@@ -4,35 +4,43 @@ from supabase import create_client
 from telebot.types import ForceReply, InlineKeyboardMarkup, InlineKeyboardButton
 
 TOKEN = os.environ['BOT_TOKEN']
-ADMIN_ID = 1050263828
-BOT_LINK = "https://t.me/medfak_kg_bot"
+ADMIN_ID = int(os.environ['ADMIN_ID'])
+AUTHOR_TG = "@eyf1n"
 
 bot = telebot.TeleBot(TOKEN)
 db = create_client(os.environ['SUPABASE_URL'], os.environ['SUPABASE_KEY'])
 
-waiting_feedback = set()
-waiting_subject = set()
-waiting_idea = set()
-reply_map = {}
+def get_state(user_id):
+    r = db.table('user_states').select('state').eq('user_id', user_id).execute()
+    return r.data[0]['state'] if r.data else None
+
+def set_state(user_id, state):
+    db.table('user_states').upsert({'user_id': user_id, 'state': state}, on_conflict='user_id').execute()
+
+def clear_state(user_id):
+    db.table('user_states').delete().eq('user_id', user_id).execute()
+
+def save_reply(message_id, user_id):
+    db.table('reply_map').upsert({'message_id': message_id, 'user_id': user_id}, on_conflict='message_id').execute()
+
+def get_reply_user(message_id):
+    r = db.table('reply_map').select('user_id').eq('message_id', message_id).execute()
+    return r.data[0]['user_id'] if r.data else None
 
 def add_user(user_id, name, username):
     db.table('users').upsert({
-        'user_id': user_id,
-        'name': name,
-        'username': username
+        'user_id': user_id, 'name': name, 'username': username
     }, on_conflict='user_id').execute()
 
 def is_new_user(user_id):
-    res = db.table('users').select('user_id').eq('user_id', user_id).execute()
-    return len(res.data) == 0
+    return len(db.table('users').select('user_id').eq('user_id', user_id).execute().data) == 0
 
 def count_users():
-    res = db.table('users').select('user_id', count='exact').execute()
-    return res.count
+    return db.table('users').select('user_id', count='exact').execute().count
 
 def main_menu():
     markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("✏️  Нашёл ошибку", callback_data="feedback"))
+    markup.add(InlineKeyboardButton("✏️  Нашёл ошибку или проблему", callback_data="feedback"))
     markup.add(InlineKeyboardButton("📚  Хочу другой предмет", callback_data="subject"))
     markup.add(InlineKeyboardButton("💡  Есть идея для развития", callback_data="idea"))
     markup.add(InlineKeyboardButton("👥  Позвать друга", callback_data="invite"))
@@ -50,7 +58,7 @@ def forward_to_admin(label, user, text=None, photo=None, document=None):
         sent = bot.send_document(ADMIN_ID, document, caption=caption)
     else:
         return
-    reply_map[sent.message_id] = user.id
+    save_reply(sent.message_id, user.id)
 
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -62,15 +70,21 @@ def start(message):
     if new:
         total = count_users()
         bot.send_message(ADMIN_ID,
-            f"🆕 Новый пользователь!\n"
-            f"👤 {name} ({username})\n"
-            f"🆔 {user_id}\n"
-            f"📊 Всего: {total} чел.")
+            f"🆕 Новый пользователь!\n👤 {name} ({username})\n🆔 {user_id}\n📊 Всего: {total} чел.")
+
+    payload = message.text.split()
+    if len(payload) > 1 and payload[1] == 'error':
+        set_state(user_id, 'feedback')
+        bot.send_message(message.chat.id,
+            "✏️ Опиши проблему — или прикрепи скриншот.\n\n"
+            "Что именно не так: ошибка в вопросе, проблема с сайтом или что-то другое?",
+            reply_markup=ForceReply(selective=True))
+        return
+
     bot.send_message(message.chat.id,
         "Привет! 👋\n\n"
-        "Здесь можно подготовиться к экзамену по "
-        "Факультетской терапии — 500 вопросов 🫀\n\n"
-        "👇 Нажми кнопку внизу и начинай!",
+        "Здесь можно подготовиться к экзаменам — 400+ вопросов по каждому предмету 🫀\n\n"
+        "👇 Нашёл ошибку или есть идея — жми:",
         reply_markup=main_menu())
 
 @bot.callback_query_handler(func=lambda c: True)
@@ -79,37 +93,38 @@ def handle_callback(call):
     user_id = call.from_user.id
     chat_id = call.message.chat.id
     if call.data == "feedback":
-        waiting_feedback.add(user_id)
+        set_state(user_id, 'feedback')
         bot.send_message(chat_id,
-            "✏️ Напиши об ошибке — или прикрепи скриншот/файл:",
+            "✏️ Опиши проблему — или прикрепи скриншот.\n\n"
+            "Что именно не так: ошибка в вопросе, проблема с сайтом или что-то другое?",
             reply_markup=ForceReply(selective=True))
     elif call.data == "subject":
-        waiting_subject.add(user_id)
+        set_state(user_id, 'subject')
         bot.send_message(chat_id,
             "📚 Напиши название предмета и курс.\n\n"
             "⚠️ Файл с вопросами обязательно скинь напрямую: @eyf1n\n"
             "Без файла добавить не получится.",
             reply_markup=ForceReply(selective=True))
     elif call.data == "idea":
-        waiting_idea.add(user_id)
+        set_state(user_id, 'idea')
         bot.send_message(chat_id,
-            "💡 Как улучшить бот?\n\n"
+            "💡 Как улучшить сайт?\n\n"
             "Напиши любую идею — новые функции, режимы, удобство.\n"
             "Читаю каждое сообщение 👀",
             reply_markup=ForceReply(selective=True))
     elif call.data == "invite":
         bot.send_message(chat_id,
-            f"👥 Скинь другу — пусть тоже готовится!\n\n"
-            f"——————————————\n"
-            f"Зацени бота для подготовки к экзаменам — 500 вопросов, "
-            f"учебный режим и экзамен на время. Реально помогает 🫀\n\n"
-            f"👉 {BOT_LINK}\n——————————————")
+            "👥 Скинь другу — пусть тоже готовится!\n\n"
+            "——————————————\n"
+            "Зацени сайт для подготовки к экзаменам — 400+ вопросов по каждому предмету, "
+            "учебный режим и экзамен на время. Реально помогает 🫀\n\n"
+            "👉 https://strongmuslim.github.io/medfak-quiz\n——————————————")
 
 @bot.message_handler(
-    func=lambda m: m.chat.id == ADMIN_ID and m.reply_to_message and m.reply_to_message.message_id in reply_map
+    func=lambda m: m.chat.id == ADMIN_ID and m.reply_to_message
 )
 def admin_reply(message):
-    target_user = reply_map.get(message.reply_to_message.message_id)
+    target_user = get_reply_user(message.reply_to_message.message_id)
     if not target_user:
         return
     if message.photo:
@@ -130,42 +145,44 @@ def stats(message):
 
 @bot.message_handler(
     content_types=['text'],
-    func=lambda m: m.from_user.id != ADMIN_ID and (
-        m.from_user.id in waiting_feedback or
-        m.from_user.id in waiting_subject or
-        m.from_user.id in waiting_idea
-    ) and m.text and not m.text.startswith('/')
+    func=lambda m: m.from_user.id != ADMIN_ID and get_state(m.from_user.id) is not None
+    and m.text and not m.text.startswith('/')
 )
 def receive_text(message):
     user_id = message.from_user.id
-    if user_id in waiting_feedback:
-        waiting_feedback.discard(user_id)
-        forward_to_admin("📩 Ошибка/отзыв", message.from_user, text=message.text)
-        bot.send_message(message.chat.id, "✅ Спасибо! Передал автору.")
-    elif user_id in waiting_subject:
-        waiting_subject.discard(user_id)
+    state = get_state(user_id)
+    clear_state(user_id)
+    if state == 'feedback':
+        forward_to_admin("📩 Ошибка/проблема", message.from_user, text=message.text)
+        bot.send_message(message.chat.id,
+            "✅ Получил, спасибо!\n\n"
+            f"Для быстрого ответа можешь написать напрямую: {AUTHOR_TG}")
+    elif state == 'subject':
         forward_to_admin("📚 Запрос предмета", message.from_user, text=message.text)
         bot.send_message(message.chat.id,
             "✅ Записал!\n\n"
-            "Теперь скинь файл с вопросами напрямую: @eyf1n\n"
+            f"Теперь скинь файл с вопросами напрямую: {AUTHOR_TG}\n"
             "Без него добавить не смогу 🙏")
-    elif user_id in waiting_idea:
-        waiting_idea.discard(user_id)
+    elif state == 'idea':
         forward_to_admin("💡 Идея", message.from_user, text=message.text)
         bot.send_message(message.chat.id, "🔥 Огонь идея! Спасибо, читаю всё 👀")
 
 @bot.message_handler(content_types=['photo'],
-    func=lambda m: m.from_user.id != ADMIN_ID and m.from_user.id in waiting_feedback)
+    func=lambda m: m.from_user.id != ADMIN_ID and get_state(m.from_user.id) == 'feedback')
 def receive_feedback_photo(message):
-    waiting_feedback.discard(message.from_user.id)
-    forward_to_admin("📸 Фото/скриншот", message.from_user, photo=message.photo[-1].file_id)
-    bot.send_message(message.chat.id, "✅ Фото получено! Передал автору.")
+    clear_state(message.from_user.id)
+    forward_to_admin("📸 Скриншот/фото", message.from_user, photo=message.photo[-1].file_id)
+    bot.send_message(message.chat.id,
+        "✅ Скриншот получен!\n\n"
+        f"Для быстрого ответа напиши напрямую: {AUTHOR_TG}")
 
 @bot.message_handler(content_types=['document'],
-    func=lambda m: m.from_user.id != ADMIN_ID and m.from_user.id in waiting_feedback)
+    func=lambda m: m.from_user.id != ADMIN_ID and get_state(m.from_user.id) == 'feedback')
 def receive_feedback_document(message):
-    waiting_feedback.discard(message.from_user.id)
+    clear_state(message.from_user.id)
     forward_to_admin("📎 Файл", message.from_user, document=message.document.file_id)
-    bot.send_message(message.chat.id, "✅ Файл получен! Передал автору.")
+    bot.send_message(message.chat.id,
+        "✅ Файл получен!\n\n"
+        f"Для быстрого ответа напиши напрямую: {AUTHOR_TG}")
 
 bot.infinity_polling()
